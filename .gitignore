@@ -1,0 +1,8 @@
+# OpenCode installation
+node_modules
+package.json
+bun.lock
+packge-lock.json
+
+# Sensitive config files
+services.json
