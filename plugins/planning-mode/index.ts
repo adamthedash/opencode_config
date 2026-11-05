@@ -1,7 +1,15 @@
 import { Plugin } from "@opencode/plugin"
 
+/** A planning-mode agent and the deliverable it may save, if any. */
+type AgentConfig = {
+  name: string
+  role: string
+  /** Folder the agent may write to when saving its deliverable. */
+  writes?: string
+}
+
 // Agents managed by this plugin. Extend the map to cover more planning-mode agents.
-const AGENTS: Record<string, { name: string; role: string }> = {
+const AGENTS: Record<string, AgentConfig> = {
   "feature-designer": {
     name: "feature-designer",
     role: "interview the user about desired functionality and produce a change ticket",
@@ -10,15 +18,36 @@ const AGENTS: Record<string, { name: string; role: string }> = {
     name: "bug-reporter",
     role: "interview the user about a bug and produce a bug report ticket",
   },
+  "product-designer": {
+    name: "product-designer",
+    role: "interview the user about a product idea and produce a requirements brief",
+    writes: "docs/requirements/",
+  },
 }
 
-const READ_ONLY_TOOLS = new Set(["edit", "write", "patch", "shell"])
+const WRITE_TOOLS = new Set(["edit", "write", "patch"])
 
 function enterReminder(agentID: string): string {
   const agent = AGENTS[agentID]
+  const boundary =
+    agent.writes === undefined
+      ? "Do not make any changes to the project for now. You have no edit, write, or shell tools by design — their absence is expected, not an error; do not look for workarounds or ask for them to be restored."
+      : `Do not change the project beyond saving the finished deliverable to \`${agent.writes}\` when the user asks. You have no shell tools, and your only write access is that folder — never edit source, configuration, or anything outside it; denials are by design, not an error, so do not look for workarounds.`
   return `<system-reminder>
-You are now the ${agent.name} agent, and this session is in planning mode: ${agent.role}. Do not make any changes to the project for now. You have no edit, write, or shell tools by design — their absence is expected, not an error; do not look for workarounds or ask for them to be restored. If earlier messages in this conversation show files being edited, that phase is over. If the user asks you to implement changes, do not do so — tell them they need to switch agents. This reminder supersedes any earlier planning-mode reminder in this conversation.
+You are now the ${agent.name} agent, and this session is in planning mode: ${agent.role}. ${boundary} If earlier messages in this conversation show files being edited, that phase is over. If the user asks you to implement changes, do not do so — tell them they need to switch agents. This reminder supersedes any earlier planning-mode reminder in this conversation.
 </system-reminder>`
+}
+
+/** Explains why a blocked tool call was denied for this agent, or undefined if it was not a blocked action. */
+function blockedMessage(agent: AgentConfig, tool: string, original: string): string | undefined {
+  if (tool === "shell") {
+    return `Cannot use shell here: the ${agent.name} agent has no shell access by design (planning mode). If changes are needed, ask the user to switch agents.`
+  }
+  if (!WRITE_TOOLS.has(tool)) return undefined
+  if (agent.writes === undefined) {
+    return `Cannot use ${tool} here: the ${agent.name} agent is read-only by design (planning mode). If changes are needed, ask the user to switch agents.`
+  }
+  return `Cannot use ${tool} here: the ${agent.name} agent may only write to \`${agent.writes}\` (planning mode). If the change belongs elsewhere, ask the user to switch agents.\n\nOriginal error: ${original}`
 }
 
 function leaveReminder(previous?: string): string {
@@ -82,11 +111,11 @@ export default Plugin.define({
     void ctx.tool.hook("execute.after", (event) => {
       if (event.status !== "error") return
       const managed = AGENTS[event.agent]
-      if (!managed || !READ_ONLY_TOOLS.has(event.tool)) return
+      if (!managed) return
+      const message = blockedMessage(managed, event.tool, event.error.message)
+      if (message === undefined) return
       const ToolError = event.error.constructor as new (init: { message: string }) => typeof event.error
-      event.error = new ToolError({
-        message: `Cannot use ${event.tool} here: the ${managed.name} agent is read-only by design (planning mode). If changes are needed, ask the user to switch agents.`,
-      })
+      event.error = new ToolError({ message })
     })
 
     return () => controller.abort()
