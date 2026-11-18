@@ -12,7 +12,8 @@ type AgentConfig = {
 const AGENTS: Record<string, AgentConfig> = {
   "feature-designer": {
     name: "feature-designer",
-    role: "interview the user about desired functionality and produce a change ticket",
+    role: "interview the user about desired functionality and produce a build-ready implementation spec",
+    writes: "docs/specs/",
   },
   "bug-reporter": {
     name: "bug-reporter",
