@@ -17,7 +17,8 @@ const AGENTS: Record<string, AgentConfig> = {
   },
   "bug-reporter": {
     name: "bug-reporter",
-    role: "interview the user about a bug and produce a bug report ticket",
+    role: "interview the user about a bug and produce a bug report with a build-ready fix spec",
+    writes: "docs/bugs/",
   },
   "product-designer": {
     name: "product-designer",
