@@ -6,43 +6,57 @@ type AgentConfig = {
   role: string
   /** Folder the agent may write to when saving its deliverable. */
   writes?: string
+  /** Read-only shell access, limited to inspection and running existing programs. */
+  shell?: "inspect"
 }
 
 // Agents managed by this plugin. Extend the map to cover more planning-mode agents.
 const AGENTS: Record<string, AgentConfig> = {
   "feature-designer": {
     name: "feature-designer",
-    role: "interview the user about desired functionality and produce a build-ready implementation spec",
+    role: "turn settled requirements or a described change into a build-ready implementation spec with concrete technology and architecture decisions",
     writes: "docs/specs/",
+    shell: "inspect",
   },
   "bug-reporter": {
     name: "bug-reporter",
-    role: "interview the user about a bug and produce a bug report with a build-ready fix spec",
+    role: "diagnose and reproduce a reported bug and produce a bug report with a build-ready fix spec",
     writes: "docs/bugs/",
+    shell: "inspect",
   },
   "product-designer": {
     name: "product-designer",
-    role: "interview the user about a product idea and produce a requirements brief",
+    role: "interview the user about product-level functionality and produce a requirements brief with no technical or architectural decisions",
     writes: "docs/requirements/",
+    shell: "inspect",
   },
 }
 
 const WRITE_TOOLS = new Set(["edit", "write", "patch"])
 
+/** Explains what an agent may change in planning mode, including its shell policy. */
+function boundary(agent: AgentConfig): string {
+  const shell =
+    agent.shell === "inspect"
+      ? "You may use shell only for read-only inspection: environment and version probes, repository inspection, and running existing programs or tests. Never build, install, or change files, and never mutate git state."
+      : "You have no shell tools by design — their absence is expected, not an error; do not look for workarounds or ask for them to be restored."
+  if (agent.writes === undefined) {
+    return `Do not make any changes to the project for now. ${shell}`
+  }
+  return `Do not change the project beyond saving the finished deliverable to \`${agent.writes}\` when the user asks. Your only write access is that folder — never edit source, configuration, or anything outside it; denials are by design, not an error, so do not look for workarounds. ${shell}`
+}
+
 function enterReminder(agentID: string): string {
   const agent = AGENTS[agentID]
-  const boundary =
-    agent.writes === undefined
-      ? "Do not make any changes to the project for now. You have no edit, write, or shell tools by design — their absence is expected, not an error; do not look for workarounds or ask for them to be restored."
-      : `Do not change the project beyond saving the finished deliverable to \`${agent.writes}\` when the user asks. You have no shell tools, and your only write access is that folder — never edit source, configuration, or anything outside it; denials are by design, not an error, so do not look for workarounds.`
   return `<system-reminder>
-You are now the ${agent.name} agent, and this session is in planning mode: ${agent.role}. ${boundary} If earlier messages in this conversation show files being edited, that phase is over. If the user asks you to implement changes, do not do so — tell them they need to switch agents. This reminder supersedes any earlier planning-mode reminder in this conversation.
+You are now the ${agent.name} agent, and this session is in planning mode: ${agent.role}. ${boundary(agent)} If earlier messages in this conversation show files being edited, that phase is over. If the user asks you to implement changes, do not do so — tell them they need to switch agents. This reminder supersedes any earlier planning-mode reminder in this conversation.
 </system-reminder>`
 }
 
 /** Explains why a blocked tool call was denied for this agent, or undefined if it was not a blocked action. */
 function blockedMessage(agent: AgentConfig, tool: string, original: string): string | undefined {
   if (tool === "shell") {
+    if (agent.shell === "inspect") return undefined
     return `Cannot use shell here: the ${agent.name} agent has no shell access by design (planning mode). If changes are needed, ask the user to switch agents.`
   }
   if (!WRITE_TOOLS.has(tool)) return undefined
